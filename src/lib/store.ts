@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import type { HealthConnection, HealthRecord } from "./health.js";
 
 export interface ApiKey {
   id: string;
@@ -29,6 +30,8 @@ export interface State {
   config: Record<string, string>;
   projects: Project[];
   apiKeys: ApiKey[];
+  healthConnection: HealthConnection | null;
+  healthRecords: HealthRecord[];
 }
 
 function stateDir(): string {
@@ -40,7 +43,14 @@ function stateFile(): string {
 }
 
 function emptyState(): State {
-  return { session: null, config: {}, projects: [], apiKeys: [] };
+  return {
+    session: null,
+    config: {},
+    projects: [],
+    apiKeys: [],
+    healthConnection: null,
+    healthRecords: [],
+  };
 }
 
 export function loadState(): State {

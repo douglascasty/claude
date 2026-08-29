@@ -47,7 +47,20 @@ claude-console keys list <projectId>
 claude-console keys revoke <keyId>
 
 claude-console usage <projectId>
+
+claude-console health connect <provider>   # apple_health | google_health_connect
+claude-console health status
+claude-console health import <file>        # JSON: { "records": [{ type, value, unit, recordedAt }] }
+claude-console health list [--type <type>] [--limit <n>]
+claude-console health summary
+claude-console health disconnect
 ```
+
+The `health` commands have no device-level access to HealthKit or Health
+Connect — those are on-device SDKs, not something a terminal process can
+reach. Export your data from the provider's app into the JSON shape above
+and import it locally; the connection step just records which provider the
+imported data came from.
 
 ## Development
 
