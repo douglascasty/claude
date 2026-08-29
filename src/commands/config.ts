@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { loadState, saveState } from "../lib/store.js";
+import { loadState, saveState } from "../lib/local.js";
 import { printTable, fail } from "../lib/output.js";
 
 export function registerConfigCommands(program: Command): void {
