@@ -1,0 +1,31 @@
+{
+  "name": "claude-console",
+  "version": "0.1.0",
+  "description": "CLI for the Claude Code Console developer platform — manage auth, projects, API keys, and usage from the terminal.",
+  "type": "module",
+  "bin": {
+    "claude-console": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
