@@ -5,6 +5,7 @@ import { registerConfigCommands } from "./commands/config.js";
 import { registerProjectCommands } from "./commands/projects.js";
 import { registerKeyCommands } from "./commands/keys.js";
 import { registerUsageCommands } from "./commands/usage.js";
+import { registerHealthCommands } from "./commands/health.js";
 
 const program = new Command();
 
@@ -18,6 +19,7 @@ registerConfigCommands(program);
 registerProjectCommands(program);
 registerKeyCommands(program);
 registerUsageCommands(program);
+registerHealthCommands(program);
 
 program.parseAsync(process.argv).catch((err) => {
   console.error(err instanceof Error ? err.message : err);

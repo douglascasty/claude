@@ -49,6 +49,42 @@ create policy "api_keys_select_own" on public.api_keys for select using (auth.ui
 create policy "api_keys_insert_own" on public.api_keys for insert with check (auth.uid() = user_id);
 create policy "api_keys_update_own" on public.api_keys for update using (auth.uid() = user_id);
 create policy "api_keys_delete_own" on public.api_keys for delete using (auth.uid() = user_id);
+
+-- Apple Health import (see "Import Apple Health data" below). Requires
+-- pgcrypto for gen_random_uuid() — enabled by default on Supabase; if it
+-- errors, run `create extension if not exists pgcrypto;` first.
+create table if not exists public.health_records (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null references auth.users(id) on delete cascade,
+  type        text not null,
+  source_name text,
+  unit        text,
+  value       text not null,
+  start_date  timestamptz not null,
+  end_date    timestamptz not null,
+  created_at  timestamptz not null default now()
+);
+create index if not exists health_records_user_type_idx on public.health_records(user_id, type);
+create index if not exists health_records_start_date_idx on public.health_records(start_date);
+alter table public.health_records enable row level security;
+create policy "health_records_select_own" on public.health_records for select using (auth.uid() = user_id);
+create policy "health_records_insert_own" on public.health_records for insert with check (auth.uid() = user_id);
+create policy "health_records_delete_own" on public.health_records for delete using (auth.uid() = user_id);
+
+-- Backs `claude-console health summary`. security invoker (the default)
+-- means it runs as the calling user, so RLS already scopes it to their
+-- own rows — the explicit where clause is just defensive.
+create or replace function public.health_summary()
+returns table(type text, count bigint, first_date timestamptz, last_date timestamptz)
+language sql
+security invoker
+as $$
+  select type, count(*), min(start_date), max(start_date)
+  from public.health_records
+  where user_id = auth.uid()
+  group by type
+  order by type;
+$$;
 ```
 
 Row Level Security means every user only ever sees their own projects and
@@ -106,10 +142,39 @@ claude-console keys list <projectId>
 claude-console keys revoke <keyId>
 
 claude-console usage <projectId>
+
+claude-console health import <file>
+claude-console health summary
+claude-console health list [--type <type>] [--since <date>] [--limit <n>]
 ```
 
 `auth login`/`auth signup` take the password as a plain CLI argument for
 simplicity — note that this puts it in your shell history.
+
+## Import Apple Health data
+
+HealthKit only exposes data on-device — there's no cloud API a CLI can call
+directly — so this works from a manual export instead:
+
+1. On your iPhone: Health app → tap your profile picture → **Export All
+   Health Data** → this produces `export.zip`.
+2. Get it onto the machine running the CLI (AirDrop, Files app, email to
+   yourself, etc.) and unzip it — it contains `apple_health_export/export.xml`.
+3. Run:
+   ```sh
+   claude-console health import path/to/apple_health_export/export.xml
+   ```
+
+This streams the XML (exports can be large) and uploads every `<Record>`
+element — steps, heart rate, workouts' quantity samples, etc. — to your
+`health_records` table in batches of 500, scoped to your logged-in user via
+RLS. Records missing a type/value/date, or with a date that fails to parse,
+are silently skipped and counted. `Workout`, `Correlation`, and
+`ClinicalRecord` elements aren't imported yet — only generic `Record`s.
+
+`health summary` shows counts and date ranges per record type;
+`health list` shows the raw rows, optionally filtered by `--type` (e.g.
+`HKQuantityTypeIdentifierStepCount`) or `--since` an ISO date.
 
 ## Development
 
@@ -118,11 +183,12 @@ npm run typecheck
 npm test
 ```
 
-Unit tests cover local state caching (`test/local.test.ts`) and the
-Supabase row mappers / config resolution (`test/store.test.ts`) — all
-offline. Anything that talks to a live Supabase project (login, CRUD,
-RLS enforcement) needs to be smoke-tested against your own project; it
-isn't covered by the automated suite.
+Unit tests cover local state caching (`test/local.test.ts`), the Supabase
+row mappers / config resolution (`test/store.test.ts`), and the Apple
+Health XML parser against a synthetic fixture (`test/health.test.ts`) —
+all offline. Anything that talks to a live Supabase project (login, CRUD,
+RLS enforcement, an actual health import) needs to be smoke-tested against
+your own project; it isn't covered by the automated suite.
 
 Set `CLAUDE_CONSOLE_HOME` to override where local state is stored (used by
 the test suite to avoid touching your real `~/.claude-console`).

@@ -1,5 +1,6 @@
 import { getAuthedClient } from "./supabase.js";
 import { newId } from "./local.js";
+import type { HealthRecord } from "./health.js";
 
 export interface Project {
   id: string;
@@ -122,4 +123,94 @@ export async function revokeApiKey(id: string): Promise<ApiKey | null> {
     .maybeSingle();
   if (error) throw new Error(error.message);
   return data ? mapApiKey(data as ApiKeyRow) : null;
+}
+
+export interface HealthRecordEntry {
+  type: string;
+  sourceName: string | null;
+  unit: string | null;
+  value: string;
+  startDate: string;
+}
+
+interface HealthRecordRow {
+  type: string;
+  source_name: string | null;
+  unit: string | null;
+  value: string;
+  start_date: string;
+}
+
+export interface HealthTypeSummary {
+  type: string;
+  count: number;
+  firstDate: string;
+  lastDate: string;
+}
+
+interface HealthSummaryRow {
+  type: string;
+  count: number;
+  first_date: string;
+  last_date: string;
+}
+
+function mapHealthRow(row: HealthRecordRow): HealthRecordEntry {
+  return {
+    type: row.type,
+    sourceName: row.source_name,
+    unit: row.unit,
+    value: row.value,
+    startDate: row.start_date,
+  };
+}
+
+export async function insertHealthRecords(records: HealthRecord[]): Promise<number> {
+  const { client, userId } = await getAuthedClient();
+  const rows = records.map((r) => ({
+    user_id: userId,
+    type: r.type,
+    source_name: r.sourceName,
+    unit: r.unit,
+    value: r.value,
+    start_date: r.startDate,
+    end_date: r.endDate,
+  }));
+  const { error, count } = await client.from("health_records").insert(rows, { count: "exact" });
+  if (error) throw new Error(error.message);
+  return count ?? rows.length;
+}
+
+export async function healthSummary(): Promise<HealthTypeSummary[]> {
+  const { client } = await getAuthedClient();
+  const { data, error } = await client.rpc("health_summary");
+  if (error) throw new Error(error.message);
+  return (data as HealthSummaryRow[]).map((row) => ({
+    type: row.type,
+    count: row.count,
+    firstDate: row.first_date,
+    lastDate: row.last_date,
+  }));
+}
+
+export async function listHealthRecords(opts: {
+  type?: string;
+  since?: string;
+  limit?: number;
+}): Promise<HealthRecordEntry[]> {
+  const { client } = await getAuthedClient();
+  let query = client
+    .from("health_records")
+    .select("type, source_name, unit, value, start_date")
+    .order("start_date", { ascending: false })
+    .limit(opts.limit ?? 50);
+  if (opts.type) {
+    query = query.eq("type", opts.type);
+  }
+  if (opts.since) {
+    query = query.gte("start_date", opts.since);
+  }
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  return (data as HealthRecordRow[]).map(mapHealthRow);
 }

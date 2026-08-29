@@ -18,10 +18,12 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
-    "commander": "^12.1.0"
+    "commander": "^12.1.0",
+    "sax": "^1.6.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "@types/sax": "^1.2.7",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
