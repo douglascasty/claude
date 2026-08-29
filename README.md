@@ -71,3 +71,12 @@ npm test
 
 Set `CLAUDE_CONSOLE_HOME` to override where local state is stored (used by
 the test suite to avoid touching your real `~/.claude-console`).
+
+## MCP server
+
+[`health-mcp-server/`](./health-mcp-server) exposes the same health-data
+connector as MCP tools (`health_connect`, `health_import_records`,
+`health_list_records`, `health_summary`, ...) so an agent can drive it
+directly instead of shelling out to `claude-console health ...`. It reads
+and writes the same local state file, so data imported through either one
+is visible to the other. See its own README for setup and tool docs.
