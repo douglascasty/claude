@@ -65,12 +65,19 @@ import webbrowser
 
 REDIRECT_URI = "http://127.0.0.1:8888/callback"
 SCOPES = " ".join([
+    "user-read-private", "user-read-email",
     "user-library-read", "user-library-modify",
     "playlist-read-private", "playlist-read-collaborative",
     "playlist-modify-public", "playlist-modify-private",
     "user-top-read", "user-read-recently-played",
     "user-follow-read", "user-follow-modify",
+    "user-read-playback-state", "user-modify-playback-state",
+    "user-read-currently-playing", "user-read-playback-position",
+    "ugc-image-upload",
 ])
+# fora dessa lista de proposito: "streaming" e "app-remote-control" sao para
+# apps que embutem um player via SDK (web/mobile), nao fazem sentido pra um
+# CLI e podem exigir revisao extra do Spotify sem trazer nenhuma funcao nova.
 CRED_PATH = os.path.expanduser("~/.config/spotify-cli/credentials.json")
 
 _auth_result = {}
