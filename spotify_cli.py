@@ -44,6 +44,8 @@ Comandos:
     podcasts list                                  lista podcasts salvos/seguidos
     podcasts now                                   mostra episodio tocando agora (se houver)
     podcasts status                                classifica cada um por atividade (ultimo ep.)
+    podcasts episodes <nome|id> [--all]            episodios finalizados/iniciados/nao ouvidos
+    podcasts unfollow --id ID [--id ID2]           deixa de seguir podcast(s)
     top tracks|artists [--range T] [--limit N]    T = short_term|medium_term|long_term
     recent [--limit N]                            tocadas recentemente
 
@@ -572,6 +574,78 @@ def cmd_podcasts_status(token, args):
     print(f"\n{len(rows)} podcasts avaliados. Corte: ativo <=60d, pausado <=365d, encerrado >365d.")
 
 
+def _resolve_show_id(token, name_or_id):
+    """Aceita um ID literal ou um pedaco do nome de um podcast salvo."""
+    if len(name_or_id) == 22 and " " not in name_or_id:
+        return name_or_id, name_or_id
+    items, offset = [], 0
+    while True:
+        page = api("GET", "me/shows", token, query={"limit": 50, "offset": offset})
+        chunk = page.get("items", [])
+        if not chunk:
+            break
+        items += chunk
+        offset += len(chunk)
+        if page.get("next") is None:
+            break
+    matches = [it["show"] for it in items if name_or_id.lower() in it["show"]["name"].lower()]
+    if not matches:
+        raise SystemExit(f"Nenhum podcast salvo com nome parecido com '{name_or_id}'.")
+    if len(matches) > 1:
+        nomes = ", ".join(m["name"] for m in matches)
+        raise SystemExit(f"Mais de um combina com '{name_or_id}': {nomes}. Seja mais especifico.")
+    return matches[0]["id"], matches[0]["name"]
+
+
+def cmd_podcasts_episodes(token, args):
+    """Classifica os episodios de um podcast usando resume_point (posicao
+    onde voce parou + se terminou), campo que exige o escopo
+    user-read-playback-position."""
+    show_id, show_name = _resolve_show_id(token, args.show)
+
+    eps, offset = [], 0
+    while True:
+        page = api("GET", f"shows/{show_id}/episodes", token,
+                    query={"limit": 50, "offset": offset})
+        chunk = page.get("items", [])
+        if not chunk:
+            break
+        eps += chunk
+        offset += len(chunk)
+        if page.get("next") is None:
+            break
+
+    finalizados, iniciados, nao_ouvidos = [], [], []
+    for e in eps:
+        rp = e.get("resume_point", {})
+        if rp.get("fully_played"):
+            finalizados.append(e)
+        elif rp.get("resume_position_ms", 0) > 0:
+            iniciados.append((e, rp["resume_position_ms"] // 60000))
+        else:
+            nao_ouvidos.append(e)
+
+    print(f"-- {show_name} -- {len(eps)} episodios --")
+    print(f"finalizados: {len(finalizados)} | iniciados: {len(iniciados)} | nao ouvidos: {len(nao_ouvidos)}\n")
+
+    if iniciados:
+        print("-- INICIADOS (nao terminados) --")
+        for e, mins in iniciados:
+            print(f"  {e['name'][:60]:<60} {mins}min")
+        print()
+
+    if not args.all:
+        print(f"({len(finalizados)} finalizados e {len(nao_ouvidos)} nao ouvidos omitidos -- use --all pra ver todos)")
+        return
+
+    print("-- FINALIZADOS --")
+    for e in finalizados:
+        print(f"  {e['name'][:70]}")
+    print("\n-- NAO OUVIDOS --")
+    for e in nao_ouvidos:
+        print(f"  {e['name'][:70]}  ({e['release_date']})")
+
+
 def cmd_podcasts_unfollow(token, args):
     # mesmo endpoint consolidado dos tracks (migracao fev/2026): DELETE
     # /me/library aceita URIs de qualquer tipo, incluindo spotify:show:...
@@ -621,6 +695,8 @@ def build_parser():
     podcasts.add_parser("list")
     podcasts.add_parser("now")
     podcasts.add_parser("status")
+    p = podcasts.add_parser("episodes"); p.add_argument("show", help="nome (parcial) ou ID do podcast")
+    p.add_argument("--all", action="store_true", help="lista tambem finalizados e nao ouvidos")
     p = podcasts.add_parser("unfollow"); p.add_argument("--id", action="append", required=True,
         help="Spotify show ID (ou URI completa)")
 
@@ -676,6 +752,7 @@ def main():
         ("podcasts", "list"): cmd_podcasts_list,
         ("podcasts", "now"): cmd_podcasts_now,
         ("podcasts", "status"): cmd_podcasts_status,
+        ("podcasts", "episodes"): cmd_podcasts_episodes,
         ("podcasts", "unfollow"): cmd_podcasts_unfollow,
         "top": cmd_top,
         "recent": cmd_recent,
