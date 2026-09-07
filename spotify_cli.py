@@ -338,6 +338,8 @@ def cmd_playlists_list(token, args):
 
 
 def cmd_following_artists(token, args):
+    # GET /me/following devolve o artista "simplificado" (sem followers/genres),
+    # diferente do objeto completo de GET /artists/{id} -- por isso listamos so nome + link.
     after = None
     total_seen = 0
     while True:
@@ -348,8 +350,7 @@ def cmd_following_artists(token, args):
         if not items:
             break
         for a in items:
-            followers = a.get("followers", {}).get("total", "?")
-            print(f"  {a['name']:<35} {followers:>10} seguidores")
+            print(f"  {a['name']:<35} {a['external_urls']['spotify']}")
         total_seen += len(items)
         after = page.get("cursors", {}).get("after")
         if not after:
