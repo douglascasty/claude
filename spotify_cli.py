@@ -43,6 +43,7 @@ Comandos:
     following artists                             lista artistas que voce segue
     podcasts list                                  lista podcasts salvos/seguidos
     podcasts now                                   mostra episodio tocando agora (se houver)
+    podcasts status                                classifica cada um por atividade (ultimo ep.)
     top tracks|artists [--range T] [--limit N]    T = short_term|medium_term|long_term
     recent [--limit N]                            tocadas recentemente
 
@@ -525,6 +526,52 @@ def cmd_podcasts_list(token, args):
     # esta tocando agora, nao um historico.
 
 
+def cmd_podcasts_status(token, args):
+    """Classifica cada podcast salvo por atividade, olhando a data do ultimo
+    episodio publicado. Nao existe um flag "ativo" oficial do Spotify --
+    e um heuristico baseado em ha quanto tempo saiu o episodio mais recente."""
+    import datetime
+    today = datetime.date.today()
+
+    items, offset = [], 0
+    while True:
+        page = api("GET", "me/shows", token, query={"limit": 50, "offset": offset})
+        chunk = page.get("items", [])
+        if not chunk:
+            break
+        items += chunk
+        offset += len(chunk)
+        if page.get("next") is None:
+            break
+
+    rows = []
+    for it in items:
+        s = it["show"]
+        ep = api("GET", f"shows/{s['id']}/episodes", token, query={"limit": 1}).get("items", [])
+        if not ep:
+            rows.append((s["name"], None, "sem episodios"))
+            continue
+        rd = ep[0]["release_date"]
+        try:
+            d = datetime.date.fromisoformat(rd if len(rd) == 10 else f"{rd}-01-01")
+        except ValueError:
+            rows.append((s["name"], rd, "data invalida"))
+            continue
+        days = (today - d).days
+        if days <= 60:
+            status = "ativo"
+        elif days <= 365:
+            status = "pausado"
+        else:
+            status = "encerrado/inativo"
+        rows.append((s["name"], rd, f"{status} (ultimo ep. ha {days}d)"))
+
+    rows.sort(key=lambda r: r[1] or "0000-00-00", reverse=True)
+    for name, rd, status in rows:
+        print(f"  {name:<40} {rd or '?':<12} {status}")
+    print(f"\n{len(rows)} podcasts avaliados. Corte: ativo <=60d, pausado <=365d, encerrado >365d.")
+
+
 def cmd_podcasts_now(token, args):
     d = api("GET", "me/player/currently-playing", token,
              query={"additional_types": "episode"})
@@ -563,6 +610,7 @@ def build_parser():
     podcasts = sub.add_parser("podcasts").add_subparsers(dest="podcasts_cmd", required=True)
     podcasts.add_parser("list")
     podcasts.add_parser("now")
+    podcasts.add_parser("status")
 
     pl = sub.add_parser("playlist").add_subparsers(dest="pl_cmd", required=True)
     p = pl.add_parser("show"); p.add_argument("playlist_id")
@@ -615,6 +663,7 @@ def main():
         ("following", "artists"): cmd_following_artists,
         ("podcasts", "list"): cmd_podcasts_list,
         ("podcasts", "now"): cmd_podcasts_now,
+        ("podcasts", "status"): cmd_podcasts_status,
         "top": cmd_top,
         "recent": cmd_recent,
     }
