@@ -36,6 +36,9 @@ Comandos:
     playlist set <playlist_id> --csv arquivo.csv  substitui o conteudo inteiro,
                                                    na ordem exata do CSV
                                                    (colunas: faixa,artista)
+    playlist from-liked <nome> [--public]         cria playlist com todas as
+                                                   curtidas (copia direta por
+                                                   URI, sem busca)
     top tracks|artists [--range T] [--limit N]    T = short_term|medium_term|long_term
     recent [--limit N]                            tocadas recentemente
 
@@ -318,6 +321,35 @@ def cmd_playlist_show(token, args):
     print(f"\n{len(tracks)} faixas.")
 
 
+def cmd_playlist_from_liked(token, args):
+    """Cria uma playlist com todas as curtidas, copiando os URIs direto --
+    sem passar por busca, entao nao ha risco de vir versao/faixa errada."""
+    uris, offset = [], 0
+    while True:
+        page = api("GET", "me/tracks", token, query={"limit": 50, "offset": offset})
+        items = page.get("items", [])
+        if not items:
+            break
+        uris += [it["track"]["uri"] for it in items]
+        print(f"  lidas {len(uris)}/{page.get('total', '?')}")
+        offset += len(items)
+        if page.get("next") is None:
+            break
+
+    if not uris:
+        raise SystemExit("Nenhuma faixa curtida encontrada.")
+
+    pl = api("POST", "me/playlists", token, {
+        "name": args.name, "public": args.public,
+        "description": f"Copia das suas {len(uris)} musicas curtidas no Spotify.",
+    })
+    for i in range(0, len(uris), 100):
+        api("POST", f"playlists/{pl['id']}/items", token, {"uris": uris[i:i + 100]})
+
+    print(f"\nCriada: {pl['name']} ({pl['id']}) -- {len(uris)} faixas")
+    print(f"  {pl['external_urls']['spotify']}")
+
+
 def cmd_playlist_create(token, args):
     pl = api("POST", "me/playlists", token, {
         "name": args.name, "public": args.public, "description": args.desc or "",
@@ -421,6 +453,7 @@ def build_parser():
     p = pl.add_parser("add"); p.add_argument("playlist_id"); p.add_argument("--uri", action="append", required=True)
     p = pl.add_parser("remove"); p.add_argument("playlist_id"); p.add_argument("--uri", action="append", required=True)
     p = pl.add_parser("set"); p.add_argument("playlist_id"); p.add_argument("--csv", required=True)
+    p = pl.add_parser("from-liked"); p.add_argument("name"); p.add_argument("--public", action="store_true")
 
     p = sub.add_parser("top")
     p.add_argument("kind", choices=["tracks", "artists"])
@@ -459,6 +492,7 @@ def main():
         ("playlist", "add"): cmd_playlist_add,
         ("playlist", "remove"): cmd_playlist_remove,
         ("playlist", "set"): cmd_playlist_set,
+        ("playlist", "from-liked"): cmd_playlist_from_liked,
         "top": cmd_top,
         "recent": cmd_recent,
     }
