@@ -41,6 +41,8 @@ Comandos:
                                                    curtidas (copia direta por
                                                    URI, sem busca)
     following artists                             lista artistas que voce segue
+    podcasts list                                  lista podcasts salvos/seguidos
+    podcasts now                                   mostra episodio tocando agora (se houver)
     top tracks|artists [--range T] [--limit N]    T = short_term|medium_term|long_term
     recent [--limit N]                            tocadas recentemente
 
@@ -497,6 +499,46 @@ def cmd_recent(token, args):
         print(f"  {it['played_at']}  {tr['name']} - {artists}")
 
 
+def cmd_podcasts_list(token, args):
+    items, offset = [], 0
+    while True:
+        page = api("GET", "me/shows", token, query={"limit": 50, "offset": offset})
+        chunk = page.get("items", [])
+        if not chunk:
+            break
+        items += chunk
+        offset += len(chunk)
+        if page.get("next") is None:
+            break
+    if not items:
+        print("Nenhum podcast salvo.")
+    for it in items:
+        s = it["show"]
+        # 'publisher' nao vem mais nesse endpoint (confirmado no corpo real da
+        # resposta); 'added_at' sim, e e mais util aqui de qualquer forma
+        added = it.get("added_at", "")[:10]
+        print(f"  {s['name']:<40} {s['total_episodes']:>4} episodios  desde {added}")
+    print(f"\n{len(items)} podcast(s) seguido(s).")
+    # nota: a API do Spotify nao expoe historico de reproducao de episodios
+    # (GET /me/player/recently-played documenta "Currently doesn't support
+    # podcast episodes") -- "que ouco" so da pra responder olhando o que
+    # esta tocando agora, nao um historico.
+
+
+def cmd_podcasts_now(token, args):
+    d = api("GET", "me/player/currently-playing", token,
+             query={"additional_types": "episode"})
+    if not d or not d.get("item"):
+        print("Nada tocando agora.")
+        return
+    item = d["item"]
+    if item.get("type") != "episode":
+        print(f"Tocando agora nao e podcast: {item.get('name')} ({item.get('type')})")
+        return
+    print(f"  {item['name']} -- {item['show']['name']}")
+    print(f"  {item['show']['publisher']}")
+
+
 def build_parser():
     ap = argparse.ArgumentParser(description=__doc__,
                                   formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -517,6 +559,10 @@ def build_parser():
 
     following = sub.add_parser("following").add_subparsers(dest="following_cmd", required=True)
     following.add_parser("artists")
+
+    podcasts = sub.add_parser("podcasts").add_subparsers(dest="podcasts_cmd", required=True)
+    podcasts.add_parser("list")
+    podcasts.add_parser("now")
 
     pl = sub.add_parser("playlist").add_subparsers(dest="pl_cmd", required=True)
     p = pl.add_parser("show"); p.add_argument("playlist_id")
@@ -567,6 +613,8 @@ def main():
         ("playlist", "set"): cmd_playlist_set,
         ("playlist", "from-liked"): cmd_playlist_from_liked,
         ("following", "artists"): cmd_following_artists,
+        ("podcasts", "list"): cmd_podcasts_list,
+        ("podcasts", "now"): cmd_podcasts_now,
         "top": cmd_top,
         "recent": cmd_recent,
     }
@@ -579,6 +627,8 @@ def main():
         fn = dispatch[("playlist", args.pl_cmd)]
     elif args.cmd == "following":
         fn = dispatch[("following", args.following_cmd)]
+    elif args.cmd == "podcasts":
+        fn = dispatch[("podcasts", args.podcasts_cmd)]
     else:
         fn = dispatch[args.cmd]
 
