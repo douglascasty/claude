@@ -283,7 +283,10 @@ def cmd_playlists_list(token, args):
         print("Nenhuma playlist (publica ou privada com escopo concedido).")
     for p in items:
         vis = "publica" if p["public"] else "privada"
-        print(f"  {p['id']}  {p['name']!r:<40} {p['tracks']['total']:>4} faixas  {vis}")
+        # a maioria das playlists traz contagem em 'tracks'; algumas (ex.: as
+        # criadas pelo playground de docs do Spotify) trazem em 'items'
+        count = (p.get("tracks") or p.get("items") or {}).get("total", "?")
+        print(f"  {p['id']}  {p['name']!r:<40} {count:>4} faixas  {vis}")
 
 
 def cmd_playlist_show(token, args):
