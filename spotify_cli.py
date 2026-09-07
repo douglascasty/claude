@@ -232,6 +232,10 @@ def cmd_liked_list(token, args):
     print(f"\n{fetched} faixas listadas (total na biblioteca: {page.get('total', '?')})")
 
 
+# Migracao de fevereiro/2026: os endpoints de escrita da biblioteca foram
+# consolidados em /me/library (URIs completas na query string, max 40),
+# substituindo PUT/DELETE /me/tracks (que aceitavam so IDs no corpo).
+# GET /me/tracks para LEITURA nao mudou -- continua igual em cmd_liked_list.
 def cmd_liked_add(token, args):
     uris = list(args.uri or [])
     if args.query:
@@ -243,9 +247,9 @@ def cmd_liked_add(token, args):
         uris.append(uri)
     if not uris:
         raise SystemExit("Informe --uri ou '<faixa> -- <artista>'.")
-    ids = [u.split(":")[-1] for u in uris]
-    api("PUT", "me/tracks", token, {"ids": ids})
-    print(f"{len(ids)} faixa(s) curtida(s).")
+    for i in range(0, len(uris), 40):
+        api("PUT", "me/library", token, query={"uris": ",".join(uris[i:i + 40])})
+    print(f"{len(uris)} faixa(s) curtida(s).")
 
 
 def cmd_liked_remove(token, args):
@@ -259,14 +263,16 @@ def cmd_liked_remove(token, args):
         uris.append(uri)
     if not uris:
         raise SystemExit("Informe --uri ou '<faixa> -- <artista>'.")
-    ids = [u.split(":")[-1] for u in uris]
-    api("DELETE", "me/tracks", token, {"ids": ids})
-    print(f"{len(ids)} faixa(s) removida(s) das curtidas.")
+    for i in range(0, len(uris), 40):
+        api("DELETE", "me/library", token, query={"uris": ",".join(uris[i:i + 40])})
+    print(f"{len(uris)} faixa(s) removida(s) das curtidas.")
 
 
 def cmd_liked_check(token, args):
-    ids = [u.split(":")[-1] for u in args.uri]
-    result = api("GET", "me/tracks/contains", token, query={"ids": ",".join(ids)})
+    result = []
+    for i in range(0, len(args.uri), 40):
+        chunk = args.uri[i:i + 40]
+        result += api("GET", "me/library/contains", token, query={"uris": ",".join(chunk)})
     for uri, saved in zip(args.uri, result):
         print(f"  {'sim' if saved else 'nao':<4} {uri}")
 
@@ -289,18 +295,22 @@ def cmd_playlists_list(token, args):
         print(f"  {p['id']}  {p['name']!r:<40} {count:>4} faixas  {vis}")
 
 
+# Migracao de fevereiro/2026: /playlists/{id}/tracks virou /playlists/{id}/items
+# em toda a familia (GET/POST/PUT/DELETE); o campo 'track' de cada item virou
+# 'item' (mantido tambem como 'track', por ora, entao lemos os dois);
+# criar playlist deixou de precisar do user_id no path (POST /me/playlists).
 def cmd_playlist_show(token, args):
     tracks, offset = [], 0
     while True:
-        page = api("GET", f"playlists/{args.playlist_id}/tracks", token,
-                    query={"limit": 100, "offset": offset,
-                           "fields": "total,next,items(track(name,artists(name),uri))"})
+        page = api("GET", f"playlists/{args.playlist_id}/items", token,
+                    query={"limit": 50, "offset": offset,
+                           "fields": "total,next,items(item(name,artists(name),uri))"})
         tracks += page.get("items", [])
         if page.get("next") is None:
             break
-        offset += 100
+        offset += 50
     for i, it in enumerate(tracks, 1):
-        tr = it.get("track")
+        tr = it.get("item") or it.get("track")
         if not tr:
             continue
         artists = ", ".join(a["name"] for a in tr["artists"])
@@ -309,8 +319,7 @@ def cmd_playlist_show(token, args):
 
 
 def cmd_playlist_create(token, args):
-    me = api("GET", "me", token)
-    pl = api("POST", f"users/{me['id']}/playlists", token, {
+    pl = api("POST", "me/playlists", token, {
         "name": args.name, "public": args.public, "description": args.desc or "",
     })
     print(f"Criada: {pl['name']} ({pl['id']})")
@@ -326,7 +335,7 @@ def cmd_playlist_add(token, args):
     if not args.uri:
         raise SystemExit("Informe uma ou mais --uri.")
     for i in range(0, len(args.uri), 100):
-        api("POST", f"playlists/{args.playlist_id}/tracks", token,
+        api("POST", f"playlists/{args.playlist_id}/items", token,
             {"uris": args.uri[i:i + 100]})
     print(f"{len(args.uri)} faixa(s) adicionada(s).")
 
@@ -334,8 +343,8 @@ def cmd_playlist_add(token, args):
 def cmd_playlist_remove(token, args):
     if not args.uri:
         raise SystemExit("Informe uma ou mais --uri.")
-    tracks = [{"uri": u} for u in args.uri]
-    api("DELETE", f"playlists/{args.playlist_id}/tracks", token, {"tracks": tracks})
+    items = [{"uri": u} for u in args.uri]
+    api("DELETE", f"playlists/{args.playlist_id}/items", token, {"items": items})
     print(f"{len(args.uri)} faixa(s) removida(s).")
 
 
@@ -358,9 +367,9 @@ def cmd_playlist_set(token, args):
         raise SystemExit("Nenhuma faixa resolvida -- nada a fazer.")
 
     # PUT substitui todo o conteudo pelas primeiras 100; POST anexa o resto
-    api("PUT", f"playlists/{args.playlist_id}/tracks", token, {"uris": uris[:100]})
+    api("PUT", f"playlists/{args.playlist_id}/items", token, {"uris": uris[:100]})
     for i in range(100, len(uris), 100):
-        api("POST", f"playlists/{args.playlist_id}/tracks", token,
+        api("POST", f"playlists/{args.playlist_id}/items", token,
             {"uris": uris[i:i + 100]})
 
     print(f"\nPlaylist substituida: {len(uris)}/{len(rows)} faixas na ordem do CSV.")

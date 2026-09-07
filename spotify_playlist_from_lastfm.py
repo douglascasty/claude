@@ -171,14 +171,17 @@ def main():
     if not uris:
         raise SystemExit("Nenhuma faixa resolvida -- nada a criar.")
 
-    pl = api("POST", f"https://api.spotify.com/v1/users/{user_id}/playlists", token,
+    # migracao de fevereiro/2026: criar playlist nao usa mais /users/{id}/playlists
+    # (virou POST /me/playlists), e adicionar faixas nao usa mais .../tracks
+    # (virou .../items) -- as duas rotas antigas passaram a devolver 403.
+    pl = api("POST", "https://api.spotify.com/v1/me/playlists", token,
              {"name": args.name,
               "public": args.public,
               "description": "Ranking de escuta do Last.fm (whocasty), por playcount."})
 
     # a API aceita no maximo 100 URIs por requisicao
     for i in range(0, len(uris), 100):
-        api("POST", f"https://api.spotify.com/v1/playlists/{pl['id']}/tracks",
+        api("POST", f"https://api.spotify.com/v1/playlists/{pl['id']}/items",
             token, {"uris": uris[i:i + 100]})
 
     print(f"\n{'=' * 60}")
