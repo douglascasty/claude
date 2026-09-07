@@ -27,6 +27,7 @@ Comandos:
     liked add --uri spotify:track:...             curte por URI exato
     liked remove <faixa> -- <artista>              descurte
     liked check --uri spotify:track:...           verifica se esta curtida
+    liked clear --yes                             remove TODAS as curtidas (destrutivo)
     playlists list                                lista suas playlists
     playlist show <playlist_id>                   lista as faixas de uma playlist
     playlist create <nome> [--public] [--desc D]  cria playlist
@@ -271,6 +272,33 @@ def cmd_liked_remove(token, args):
     print(f"{len(uris)} faixa(s) removida(s) das curtidas.")
 
 
+def cmd_liked_clear(token, args):
+    """Descurte TODAS as faixas da biblioteca. Destrutivo -- exige --yes."""
+    if not args.yes:
+        raise SystemExit("Isso remove TODAS as curtidas. Rode de novo com --yes para confirmar.")
+
+    uris, offset = [], 0
+    while True:
+        page = api("GET", "me/tracks", token, query={"limit": 50, "offset": offset})
+        items = page.get("items", [])
+        if not items:
+            break
+        uris += [it["track"]["uri"] for it in items]
+        offset += len(items)
+        if page.get("next") is None:
+            break
+
+    if not uris:
+        print("Nenhuma faixa curtida encontrada -- nada a fazer.")
+        return
+
+    for i in range(0, len(uris), 40):
+        api("DELETE", "me/library", token, query={"uris": ",".join(uris[i:i + 40])})
+        print(f"  removidas {min(i + 40, len(uris))}/{len(uris)}")
+
+    print(f"\n{len(uris)} faixa(s) removida(s) das curtidas.")
+
+
 def cmd_liked_check(token, args):
     result = []
     for i in range(0, len(args.uri), 40):
@@ -443,6 +471,8 @@ def build_parser():
     p = liked.add_parser("add"); p.add_argument("query", nargs="*"); p.add_argument("--uri", action="append")
     p = liked.add_parser("remove"); p.add_argument("query", nargs="*"); p.add_argument("--uri", action="append")
     p = liked.add_parser("check"); p.add_argument("--uri", action="append", required=True)
+    p = liked.add_parser("clear"); p.add_argument("--yes", action="store_true",
+        help="confirma a remocao de TODAS as curtidas -- obrigatorio")
 
     sub.add_parser("playlists").add_subparsers(dest="pls_cmd", required=True).add_parser("list")
 
@@ -485,6 +515,7 @@ def main():
         ("liked", "add"): cmd_liked_add,
         ("liked", "remove"): cmd_liked_remove,
         ("liked", "check"): cmd_liked_check,
+        ("liked", "clear"): cmd_liked_clear,
         ("playlists", "list"): cmd_playlists_list,
         ("playlist", "show"): cmd_playlist_show,
         ("playlist", "create"): cmd_playlist_create,
