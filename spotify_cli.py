@@ -40,6 +40,7 @@ Comandos:
     playlist from-liked <nome> [--public]         cria playlist com todas as
                                                    curtidas (copia direta por
                                                    URI, sem busca)
+    following artists                             lista artistas que voce segue
     top tracks|artists [--range T] [--limit N]    T = short_term|medium_term|long_term
     recent [--limit N]                            tocadas recentemente
 
@@ -68,6 +69,7 @@ SCOPES = " ".join([
     "playlist-read-private", "playlist-read-collaborative",
     "playlist-modify-public", "playlist-modify-private",
     "user-top-read", "user-read-recently-played",
+    "user-follow-read", "user-follow-modify",
 ])
 CRED_PATH = os.path.expanduser("~/.config/spotify-cli/credentials.json")
 
@@ -309,6 +311,7 @@ def cmd_liked_check(token, args):
 
 
 def cmd_playlists_list(token, args):
+    me_id = api("GET", "me", token)["id"]
     items, offset = [], 0
     while True:
         page = api("GET", "me/playlists", token, query={"limit": 50, "offset": offset})
@@ -317,13 +320,41 @@ def cmd_playlists_list(token, args):
             break
         offset += 50
     if not items:
-        print("Nenhuma playlist (publica ou privada com escopo concedido).")
-    for p in items:
-        vis = "publica" if p["public"] else "privada"
-        # a maioria das playlists traz contagem em 'tracks'; algumas (ex.: as
-        # criadas pelo playground de docs do Spotify) trazem em 'items'
-        count = (p.get("tracks") or p.get("items") or {}).get("total", "?")
-        print(f"  {p['id']}  {p['name']!r:<40} {count:>4} faixas  {vis}")
+        print("Nenhuma playlist (propria ou seguida).")
+    minhas = [p for p in items if p.get("owner", {}).get("id") == me_id]
+    seguidas = [p for p in items if p.get("owner", {}).get("id") != me_id]
+    for label, group, show_owner in (("SUAS", minhas, False),
+                                      ("SEGUIDAS (de outras pessoas)", seguidas, True)):
+        if not group:
+            continue
+        print(f"-- {label} --")
+        for p in group:
+            vis = "publica" if p["public"] else "privada"
+            # a maioria das playlists traz contagem em 'tracks'; algumas (ex.: as
+            # criadas pelo playground de docs do Spotify) trazem em 'items'
+            count = (p.get("tracks") or p.get("items") or {}).get("total", "?")
+            dono = f"  (por {p['owner'].get('display_name') or p['owner']['id']})" if show_owner else ""
+            print(f"  {p['id']}  {p['name']!r:<40} {count:>4} faixas  {vis}{dono}")
+
+
+def cmd_following_artists(token, args):
+    after = None
+    total_seen = 0
+    while True:
+        page = api("GET", "me/following", token,
+                    query={"type": "artist", "limit": 50, **({"after": after} if after else {})}
+                    )["artists"]
+        items = page.get("items", [])
+        if not items:
+            break
+        for a in items:
+            followers = a.get("followers", {}).get("total", "?")
+            print(f"  {a['name']:<35} {followers:>10} seguidores")
+        total_seen += len(items)
+        after = page.get("cursors", {}).get("after")
+        if not after:
+            break
+    print(f"\n{total_seen} artista(s) seguido(s) (total reportado: {page.get('total', '?')}).")
 
 
 # Migracao de fevereiro/2026: /playlists/{id}/tracks virou /playlists/{id}/items
@@ -476,6 +507,9 @@ def build_parser():
 
     sub.add_parser("playlists").add_subparsers(dest="pls_cmd", required=True).add_parser("list")
 
+    following = sub.add_parser("following").add_subparsers(dest="following_cmd", required=True)
+    following.add_parser("artists")
+
     pl = sub.add_parser("playlist").add_subparsers(dest="pl_cmd", required=True)
     p = pl.add_parser("show"); p.add_argument("playlist_id")
     p = pl.add_parser("create"); p.add_argument("name"); p.add_argument("--public", action="store_true"); p.add_argument("--desc")
@@ -524,6 +558,7 @@ def main():
         ("playlist", "remove"): cmd_playlist_remove,
         ("playlist", "set"): cmd_playlist_set,
         ("playlist", "from-liked"): cmd_playlist_from_liked,
+        ("following", "artists"): cmd_following_artists,
         "top": cmd_top,
         "recent": cmd_recent,
     }
@@ -534,6 +569,8 @@ def main():
         fn = dispatch[("playlists", args.pls_cmd)]
     elif args.cmd == "playlist":
         fn = dispatch[("playlist", args.pl_cmd)]
+    elif args.cmd == "following":
+        fn = dispatch[("following", args.following_cmd)]
     else:
         fn = dispatch[args.cmd]
 
