@@ -31,6 +31,13 @@ Comandos:
     whoami                          mostra a conta Google autenticada
     projects list                   lista projetos acessiveis
     vms list [--project ID]         lista VMs (todos os projetos se omitido)
+    vms create NOME --project ID --yes [opcoes]
+                                     cria VM (custo real) -- confirma imagem
+                                     Ubuntu contra a API, gera chave SSH,
+                                     instala Claude Code/Ollama/Codex/Antigravity
+                                     no boot. --yes obrigatorio.
+    images list-ubuntu              familias Ubuntu disponiveis agora (checar
+                                     antes de usar --image-family)
     billing info --project ID       mostra a conta de billing vinculada
                                      (nao mostra saldo -- isso e so no Console)
 """
@@ -50,7 +57,8 @@ import webbrowser
 
 REDIRECT_URI = "http://localhost:8888/"
 SCOPES = " ".join([
-    "https://www.googleapis.com/auth/cloud-platform.read-only",
+    # full cloud-platform (nao mais read-only): criar VM e escrita, nao leitura
+    "https://www.googleapis.com/auth/cloud-platform",
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
 ])
@@ -74,11 +82,14 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
         pass
 
 
-def api(method, url, token, query=None):
+def api(method, url, token, query=None, body=None):
     if query:
         url += "?" + urllib.parse.urlencode(query)
-    req = urllib.request.Request(url, method=method,
-                                  headers={"Authorization": f"Bearer {token}"})
+    data = json.dumps(body).encode() if body is not None else None
+    headers = {"Authorization": f"Bearer {token}"}
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
     try:
         with urllib.request.urlopen(req) as resp:
             raw = resp.read()
@@ -239,6 +250,127 @@ def cmd_billing_info(token, args):
     print("  https://console.cloud.google.com/billing")
 
 
+def cmd_images_list_ubuntu(token, args):
+    """Lista as familias de imagem Ubuntu realmente disponiveis agora no
+    projeto ubuntu-os-cloud -- checar aqui antes de criar VM evita usar
+    um nome de familia (ex.: ubuntu-2604-lts) que ainda nao existe."""
+    d = api("GET", "https://compute.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/images",
+             token, query={"maxResults": 500,
+                            "filter": "deprecated.state != DEPRECATED AND name : ubuntu*"})
+    fams = sorted({img.get("family") for img in d.get("items", []) if img.get("family")})
+    if not fams:
+        print("Nenhuma imagem Ubuntu encontrada (inesperado -- verifique a API).")
+        return
+    for f in fams:
+        print(f"  {f}")
+    print(f"\n{len(fams)} familias Ubuntu disponiveis agora.")
+
+
+_STARTUP_SCRIPT_TEMPLATE = """#!/bin/bash
+set -e
+exec > /var/log/startup-script-tools.log 2>&1
+echo "=== inicio $(date) ==="
+
+apt-get update
+apt-get install -y curl git build-essential ca-certificates
+
+# a conta {username} e criada pelo guest agent ao processar a chave SSH,
+# mas isso e assincrono em relacao ao startup-script -- espera existir
+for i in $(seq 1 30); do
+    id {username} >/dev/null 2>&1 && break
+    sleep 2
+done
+
+# Ollama roda como servico de sistema, instala como root
+curl -fsSL https://ollama.com/install.sh | sh
+
+# ferramentas de agente sao por usuario (~/.local/bin), roda como {username}
+su - {username} -c 'curl -fsSL https://claude.ai/install.sh | bash'
+su - {username} -c 'curl -fsSL https://chatgpt.com/codex/install.sh | sh'
+su - {username} -c 'curl -fsSL https://antigravity.google/cli/install.sh | bash'
+
+echo "=== fim $(date) ==="
+"""
+
+
+def cmd_vms_create(token, args):
+    """Cria uma VM. Custo real e continuo se nao for a e2-micro do Always
+    Free -- por isso exige --yes com o valor estimado already visto pelo
+    usuario, e sempre confirma a familia de imagem contra a API antes de
+    criar (nunca assume que ubuntu-2604-lts existe sem checar)."""
+    import subprocess
+    import tempfile
+
+    if not args.yes:
+        raise SystemExit(
+            "Isso cria uma VM de verdade, com custo cobrado na conta enquanto "
+            "ela ficar ligada. Rode de novo com --yes para confirmar."
+        )
+
+    # confirma que a familia de imagem pedida existe de verdade
+    d = api("GET", "https://compute.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/images",
+             token, query={"maxResults": 500, "filter": "deprecated.state != DEPRECATED"})
+    fams = {img.get("family") for img in d.get("items", []) if img.get("family")}
+    if args.image_family not in fams:
+        raise SystemExit(
+            f"Familia '{args.image_family}' nao existe no projeto ubuntu-os-cloud agora.\n"
+            f"Rode 'images list-ubuntu' para ver as disponiveis."
+        )
+
+    import shutil
+    if shutil.which("ssh-keygen") is None:
+        raise SystemExit(
+            "ssh-keygen nao encontrado. Instale com:\n"
+            "  apt-get install -y openssh-client"
+        )
+
+    ssh_dir = os.path.expanduser("~/.config/gcloud-cli/ssh")
+    os.makedirs(ssh_dir, exist_ok=True)
+    key_path = os.path.join(ssh_dir, f"{args.name}_ed25519")
+    if not os.path.exists(key_path):
+        subprocess.run(["ssh-keygen", "-t", "ed25519", "-N", "", "-f", key_path,
+                        "-C", args.username], check=True, capture_output=True)
+    with open(key_path + ".pub") as f:
+        pubkey = f.read().strip()
+
+    startup_script = _STARTUP_SCRIPT_TEMPLATE.format(username=args.username)
+
+    body = {
+        "name": args.name,
+        "machineType": f"zones/{args.zone}/machineTypes/{args.machine_type}",
+        "disks": [{
+            "boot": True,
+            "autoDelete": True,
+            "initializeParams": {
+                "sourceImage": f"projects/ubuntu-os-cloud/global/images/family/{args.image_family}",
+                "diskSizeGb": str(args.disk_size),
+            },
+        }],
+        "networkInterfaces": [{
+            "network": "global/networks/default",
+            "accessConfigs": [{"type": "ONE_TO_ONE_NAT", "name": "External NAT"}],
+        }],
+        "metadata": {"items": [
+            {"key": "ssh-keys", "value": f"{args.username}:{pubkey}"},
+            {"key": "startup-script", "value": startup_script},
+        ]},
+        "tags": {"items": ["ssh"]},
+    }
+
+    d = api("POST", f"https://compute.googleapis.com/compute/v1/projects/{args.project}/zones/{args.zone}/instances",
+             token, body=body)
+    print(f"Criando '{args.name}' -- operacao: {d.get('name')}")
+    print(f"Status: {d.get('status')}")
+    print()
+    print(f"Chave privada SSH: {key_path}")
+    print(f"Depois que a VM tiver um IP externo (veja com 'vms list'):")
+    print(f"  ssh -i {key_path} {args.username}@<IP_EXTERNO>")
+    print()
+    print("As ferramentas (Claude Code, Ollama, Codex CLI, Antigravity CLI) sao")
+    print("instaladas pelo startup-script no primeiro boot -- leva alguns minutos.")
+    print(f"Log de instalacao dentro da VM: /var/log/startup-script-tools.log")
+
+
 def build_parser():
     ap = argparse.ArgumentParser(description=__doc__,
                                   formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -251,9 +383,20 @@ def build_parser():
 
     vms = sub.add_parser("vms").add_subparsers(dest="vms_cmd", required=True)
     p = vms.add_parser("list"); p.add_argument("--project", help="ID do projeto (todos, se omitido)")
+    p = vms.add_parser("create")
+    p.add_argument("name")
+    p.add_argument("--project", required=True)
+    p.add_argument("--zone", default="us-central1-a")
+    p.add_argument("--machine-type", default="e2-micro")
+    p.add_argument("--image-family", default="ubuntu-2604-lts")
+    p.add_argument("--disk-size", type=int, default=30, help="GB")
+    p.add_argument("--username", default="douglas")
+    p.add_argument("--yes", action="store_true", help="confirma a criacao (custo real) -- obrigatorio")
 
     billing = sub.add_parser("billing").add_subparsers(dest="billing_cmd", required=True)
     p = billing.add_parser("info"); p.add_argument("--project", required=True)
+
+    sub.add_parser("images").add_subparsers(dest="img_cmd", required=True).add_parser("list-ubuntu")
 
     return ap
 
@@ -275,7 +418,9 @@ def main():
         "whoami": cmd_whoami,
         ("projects", "list"): cmd_projects_list,
         ("vms", "list"): cmd_vms_list,
+        ("vms", "create"): cmd_vms_create,
         ("billing", "info"): cmd_billing_info,
+        ("images", "list-ubuntu"): cmd_images_list_ubuntu,
     }
 
     if args.cmd == "projects":
@@ -284,6 +429,8 @@ def main():
         fn = dispatch[("vms", args.vms_cmd)]
     elif args.cmd == "billing":
         fn = dispatch[("billing", args.billing_cmd)]
+    elif args.cmd == "images":
+        fn = dispatch[("images", args.img_cmd)]
     else:
         fn = dispatch[args.cmd]
 
