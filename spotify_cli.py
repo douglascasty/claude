@@ -572,6 +572,16 @@ def cmd_podcasts_status(token, args):
     print(f"\n{len(rows)} podcasts avaliados. Corte: ativo <=60d, pausado <=365d, encerrado >365d.")
 
 
+def cmd_podcasts_unfollow(token, args):
+    # mesmo endpoint consolidado dos tracks (migracao fev/2026): DELETE
+    # /me/library aceita URIs de qualquer tipo, incluindo spotify:show:...
+    uris = [f"spotify:show:{i}" if not i.startswith("spotify:show:") else i
+            for i in args.id]
+    for i in range(0, len(uris), 40):
+        api("DELETE", "me/library", token, query={"uris": ",".join(uris[i:i + 40])})
+    print(f"{len(uris)} podcast(s) removido(s) dos seguidos.")
+
+
 def cmd_podcasts_now(token, args):
     d = api("GET", "me/player/currently-playing", token,
              query={"additional_types": "episode"})
@@ -611,6 +621,8 @@ def build_parser():
     podcasts.add_parser("list")
     podcasts.add_parser("now")
     podcasts.add_parser("status")
+    p = podcasts.add_parser("unfollow"); p.add_argument("--id", action="append", required=True,
+        help="Spotify show ID (ou URI completa)")
 
     pl = sub.add_parser("playlist").add_subparsers(dest="pl_cmd", required=True)
     p = pl.add_parser("show"); p.add_argument("playlist_id")
@@ -664,6 +676,7 @@ def main():
         ("podcasts", "list"): cmd_podcasts_list,
         ("podcasts", "now"): cmd_podcasts_now,
         ("podcasts", "status"): cmd_podcasts_status,
+        ("podcasts", "unfollow"): cmd_podcasts_unfollow,
         "top": cmd_top,
         "recent": cmd_recent,
     }
