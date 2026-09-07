@@ -272,7 +272,7 @@ exec > /var/log/startup-script-tools.log 2>&1
 echo "=== inicio $(date) ==="
 
 apt-get update
-apt-get install -y curl git build-essential ca-certificates
+apt-get install -y curl git build-essential ca-certificates zstd
 
 # a conta {username} e criada pelo guest agent ao processar a chave SSH,
 # mas isso e assincrono em relacao ao startup-script -- espera existir
