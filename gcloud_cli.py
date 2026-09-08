@@ -289,6 +289,15 @@ su - {username} -c 'curl -fsSL https://claude.ai/install.sh | bash'
 su - {username} -c 'curl -fsSL https://chatgpt.com/codex/install.sh | sh'
 su - {username} -c 'curl -fsSL https://antigravity.google/cli/install.sh | bash'
 
+# VS Code no navegador -- so escuta em localhost, acesso via tunel SSH
+curl -fsSL https://code-server.dev/install.sh | sh
+su - {username} -c 'mkdir -p ~/.config/code-server'
+su - {username} -c 'echo "bind-addr: 127.0.0.1:8080" > ~/.config/code-server/config.yaml
+echo "auth: password" >> ~/.config/code-server/config.yaml
+echo "password: {codeserver_password}" >> ~/.config/code-server/config.yaml
+echo "cert: false" >> ~/.config/code-server/config.yaml'
+systemctl enable --now code-server@{username}
+
 echo "=== fim $(date) ==="
 """
 
@@ -333,7 +342,9 @@ def cmd_vms_create(token, args):
     with open(key_path + ".pub") as f:
         pubkey = f.read().strip()
 
-    startup_script = _STARTUP_SCRIPT_TEMPLATE.format(username=args.username)
+    codeserver_password = secrets.token_urlsafe(16)
+    startup_script = _STARTUP_SCRIPT_TEMPLATE.format(
+        username=args.username, codeserver_password=codeserver_password)
 
     body = {
         "name": args.name,
@@ -366,9 +377,13 @@ def cmd_vms_create(token, args):
     print(f"Depois que a VM tiver um IP externo (veja com 'vms list'):")
     print(f"  ssh -i {key_path} {args.username}@<IP_EXTERNO>")
     print()
-    print("As ferramentas (Claude Code, Ollama, Codex CLI, Antigravity CLI) sao")
-    print("instaladas pelo startup-script no primeiro boot -- leva alguns minutos.")
+    print("As ferramentas (Claude Code, Ollama, Codex CLI, Antigravity CLI, code-server)")
+    print("sao instaladas pelo startup-script no primeiro boot -- leva alguns minutos.")
     print(f"Log de instalacao dentro da VM: /var/log/startup-script-tools.log")
+    print()
+    print("VS Code no navegador (code-server), so acessivel via tunel SSH:")
+    print(f"  ssh -i {key_path} -L 8080:localhost:8080 {args.username}@<IP_EXTERNO>")
+    print(f"  depois abra http://localhost:8080 -- senha: {codeserver_password}")
 
 
 def build_parser():
