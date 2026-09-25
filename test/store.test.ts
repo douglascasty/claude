@@ -31,7 +31,8 @@ describe("resolveSupabaseConfig", () => {
   });
 
   afterEach(() => {
-    process.env.CLAUDE_CONSOLE_HOME = originalHome;
+    if (originalHome === undefined) delete process.env.CLAUDE_CONSOLE_HOME;
+  else process.env.CLAUDE_CONSOLE_HOME = originalHome;
     if (originalUrl === undefined) delete process.env.SUPABASE_URL;
     else process.env.SUPABASE_URL = originalUrl;
     if (originalKey === undefined) delete process.env.SUPABASE_ANON_KEY;

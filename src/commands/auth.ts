@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { loadState, saveState, type Session } from "../lib/local.js";
 import { getSupabaseClient } from "../lib/supabase.js";
 import { fail } from "../lib/output.js";
+import { promptPassword } from "../lib/prompt.js";
 
 function sessionFromSupabase(
   email: string,
@@ -23,8 +24,8 @@ export function registerAuthCommands(program: Command): void {
     .command("signup")
     .description("create a new Console account")
     .argument("<email>", "account email")
-    .argument("<password>", "account password (visible in shell history)")
-    .action(async (email: string, password: string) => {
+    .action(async (email: string) => {
+      const password = await promptPassword();
       const client = getSupabaseClient();
       const { data, error } = await client.auth.signUp({ email, password });
       if (error) {
@@ -44,8 +45,8 @@ export function registerAuthCommands(program: Command): void {
     .command("login")
     .description("log in to the Claude Code Console")
     .argument("<email>", "account email")
-    .argument("<password>", "account password (visible in shell history)")
-    .action(async (email: string, password: string) => {
+    .action(async (email: string) => {
+      const password = await promptPassword();
       const client = getSupabaseClient();
       const { data, error } = await client.auth.signInWithPassword({ email, password });
       if (error || !data.session) {
@@ -87,7 +88,7 @@ export function registerAuthCommands(program: Command): void {
     .action(() => {
       const state = loadState();
       if (!state.session) {
-        fail("not logged in. Run `claude-console auth login <email> <password>`.");
+        fail("not logged in. Run `claude-console auth login <email>`.");
       }
       console.log(state.session.email);
     });

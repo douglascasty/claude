@@ -42,7 +42,7 @@ export async function getAuthedClient(): Promise<{ client: SupabaseClient; userI
   const client = getSupabaseClient();
   const state = loadState();
   if (!state.session) {
-    fail("not logged in. Run `claude-console auth login <email> <password>`.");
+    fail("not logged in. Run `claude-console auth login <email>`.");
   }
 
   const { data, error } = await client.auth.setSession({

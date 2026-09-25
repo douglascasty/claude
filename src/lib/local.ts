@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -33,10 +33,14 @@ export function loadState(): State {
   if (!existsSync(file)) {
     return emptyState();
   }
+  const raw = readFileSync(file, "utf-8");
   try {
-    const raw = readFileSync(file, "utf-8");
     return { ...emptyState(), ...JSON.parse(raw) };
   } catch {
+    // Keep a copy so the next save doesn't silently destroy the user's data.
+    const backup = `${file}.corrupt-${Date.now()}`;
+    writeFileSync(backup, raw, { encoding: "utf-8", mode: 0o600 });
+    console.error(`Warning: ${file} is not valid JSON; backed up to ${backup} and starting fresh.`);
     return emptyState();
   }
 }
@@ -46,7 +50,13 @@ export function saveState(state: State): void {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
-  writeFileSync(stateFile(), JSON.stringify(state, null, 2), { encoding: "utf-8", mode: 0o600 });
+  // `mode` only applies on creation, so tighten pre-existing paths explicitly.
+  chmodSync(dir, 0o700);
+  const file = stateFile();
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(state, null, 2), { encoding: "utf-8", mode: 0o600 });
+  chmodSync(tmp, 0o600);
+  renameSync(tmp, file);
 }
 
 export function newId(prefix: string): string {

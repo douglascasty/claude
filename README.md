@@ -59,8 +59,8 @@ create policy "projects_delete_own" on public.projects for delete using (auth.ui
 ## Commands
 
 ```text
-claude-console auth signup <email> <password>
-claude-console auth login <email> <password>
+claude-console auth signup <email>
+claude-console auth login <email>
 claude-console auth whoami
 claude-console auth logout
 claude-console config set <key> <value>
@@ -70,7 +70,8 @@ claude-console projects show <id>
 claude-console projects delete <id>
 ```
 
-Avoid supplying passwords in shell history or scripts.
+Passwords are read from an interactive prompt without echo, or from the first
+line of stdin when it is not a terminal. They are never taken as arguments.
 
 ## Development
 

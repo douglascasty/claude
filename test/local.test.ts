@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadState, saveState, newId } from "../src/lib/local.js";
@@ -14,7 +14,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  process.env.CLAUDE_CONSOLE_HOME = originalHome;
+  if (originalHome === undefined) delete process.env.CLAUDE_CONSOLE_HOME;
+  else process.env.CLAUDE_CONSOLE_HOME = originalHome;
   rmSync(tmpHome, { recursive: true, force: true });
 });
 
@@ -41,6 +42,23 @@ describe("local state", () => {
     expect(reloaded.config.supabase_url).toBe("https://example.supabase.co");
     expect(reloaded.session?.email).toBe("dev@example.com");
     expect(reloaded.session?.userId).toBe("user-1");
+  });
+
+  it("tightens permissions on a pre-existing state file", () => {
+    const file = join(tmpHome, "state.json");
+    writeFileSync(file, "{}");
+    chmodSync(file, 0o644);
+    saveState(loadState());
+    if (process.platform !== "win32") {
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+    }
+  });
+
+  it("backs up a corrupt state file instead of discarding it", () => {
+    writeFileSync(join(tmpHome, "state.json"), "{not json");
+    const state = loadState();
+    expect(state.session).toBeNull();
+    expect(readdirSync(tmpHome).some((f) => f.startsWith("state.json.corrupt-"))).toBe(true);
   });
 
   it("generates ids with the given prefix", () => {
