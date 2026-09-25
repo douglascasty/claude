@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { listProjects, createProject, getProject, deleteProject, listApiKeys } from "../lib/store.js";
+import { listProjects, createProject, getProject, deleteProject } from "../lib/store.js";
 import { printTable, fail } from "../lib/output.js";
 
 export function registerProjectCommands(program: Command): void {
@@ -37,17 +37,14 @@ export function registerProjectCommands(program: Command): void {
       if (!project) {
         fail(`no project found with id "${id}"`);
       }
-      const keys = await listApiKeys(id);
-      const keyCount = keys.filter((k) => !k.revokedAt).length;
       console.log(`id:      ${project.id}`);
       console.log(`name:    ${project.name}`);
       console.log(`created: ${project.createdAt}`);
-      console.log(`keys:    ${keyCount} active`);
     });
 
   projects
     .command("delete")
-    .description("delete a project and its API keys")
+    .description("delete a project")
     .argument("<id>", "project id")
     .action(async (id: string) => {
       const deleted = await deleteProject(id);
