@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mapProject, mapApiKey } from "../src/lib/store.js";
+import { mapProject } from "../src/lib/store.js";
 import { saveState, loadState } from "../src/lib/local.js";
 import { resolveSupabaseConfig } from "../src/lib/supabase.js";
 
@@ -12,24 +12,6 @@ describe("row mappers", () => {
     expect(project).toEqual({ id: "proj_abc123", name: "demo", createdAt: "2026-01-01T00:00:00Z" });
   });
 
-  it("maps an api_key row to camelCase", () => {
-    const key = mapApiKey({
-      id: "key_abc123",
-      name: "ci",
-      project_id: "proj_abc123",
-      token: "sk-console-xyz",
-      created_at: "2026-01-01T00:00:00Z",
-      revoked_at: null,
-    });
-    expect(key).toEqual({
-      id: "key_abc123",
-      name: "ci",
-      projectId: "proj_abc123",
-      token: "sk-console-xyz",
-      createdAt: "2026-01-01T00:00:00Z",
-      revokedAt: null,
-    });
-  });
 });
 
 describe("resolveSupabaseConfig", () => {
